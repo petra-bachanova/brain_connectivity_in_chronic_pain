@@ -1,0 +1,87 @@
+---
+title: "stats"
+output: html_document
+date: "2024-03-10"
+---
+
+```{r}
+# libraries
+library(ggplot2)
+library(table1)
+library(reshape2)
+library(ggplot2)
+```
+
+```{r}
+df = read.csv("../Data/240508_metadata_prepped.csv")
+df = df[df$time==1, ]
+df$is_patient = as.factor(df$is_patient)
+df = df[df$time == 1, ] #& !is.na(df$pain_avg)
+
+T1 = table1(
+  ~ gender + 
+    age + 
+    weight + 
+    ethnicity + 
+    backpain_length +
+    pain_avg_t1 + 
+    n_spike_regs_sponpain +
+    promis_dep_t1 + 
+    promis_anger_t1 + 
+    promis_anxiety_t1 + 
+    negative_affect_t1 +
+    promis_sleep_t1 +
+    bpi_intensity_t1 +
+    bpi_interference_t1 + 
+    odi_t1| is_patient, data=df,
+       render.continuous=c( .="Median [Min, Max]"))
+```
+
+
+```{r}
+df = read.csv("../Data/240508_metadata_prepped.csv")
+df = df[df$time == 1, ]
+df[df$is_patient == 0, ]$backpain_length = 0
+
+cols = c("motion_outliers", "n_spike_regs_sponpain", "promis_sleep_t1", "negative_affect_t1", "odi_t1", 
+         "bpi_intensity_t1", "backpain_length", "ethnicity", "weight",  "age", "gender", "is_patient")
+
+df_num = na.omit(df[cols])  # remove Nan & subset interesting cols
+df_num <- apply(df_num, 2, function(x) as.numeric(x))
+
+cormat <- round(cor(df_num),2) # get correlations
+melted_cormat <- melt(cormat, na.rm = TRUE)
+
+gg_heat <- ggplot(data = melted_cormat, aes(Var2, Var1, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(
+    low = "blue", high = "red", mid = "white",
+    midpoint = 0, limit = c(-1,1), 
+    space = "Lab",
+    name="Pearson\nCorrelation") +
+  theme_minimal() + 
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1)) +
+  coord_fixed() + 
+geom_text(aes(Var2, Var1, label = value), color = "black", size = 4)
+```
+
+```{r}
+df_melt <- melt(df[cols], na.rm = TRUE, id.vars = "is_patient")
+df_melt$is_patient[df_melt$is_patient == 0] <- "HC"
+df_melt$is_patient[df_melt$is_patient == 1] <- "CBP"
+df_melt$is_patient <- factor(df_melt$is_patient, levels=c("HC", "CBP"))
+
+
+vars_basic = c("age", "weight")
+vars_pain = c("pain_avg_t1", "odi_t1", "bpi_intensity_t1", "bpi_interference_t1")
+vars_promis = c("promis_anxiety_t1", "promis_dep_t1", "promis_anger_t1", "negative_affect_t1", "promis_sleep_t1")
+```
+
+
+```
+
+
+
+
+
