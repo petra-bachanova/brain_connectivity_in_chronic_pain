@@ -77,7 +77,46 @@ vars_basic = c("age", "weight")
 vars_pain = c("pain_avg_t1", "odi_t1", "bpi_intensity_t1", "bpi_interference_t1")
 vars_promis = c("promis_anxiety_t1", "promis_dep_t1", "promis_anger_t1", "negative_affect_t1", "promis_sleep_t1")
 ```
+```{r}
+df = read.csv("../Data/240515_hdi_vs_motion_in_groups.csv")
+library(dplyr)
+df <- df %>% 
+  mutate(is_patient = recode(is_patient, '0' = 'HC', '1' = 'CBP'))
 
+
+
+
+correlation <- na.omit(df) %>%
+  group_by(is_patient) %>%
+  summarise(correlation = round(cor(n_spike_regs_sponpain, betweenness), 3))
+
+correlation_no_out <- na.omit(df[df$n_spike_regs_sponpain < 210,]) %>%
+  group_by(is_patient) %>%
+  summarise(correlation = round(cor(n_spike_regs_sponpain, betweenness), 3))
+
+
+ggplot(data = df, aes(x = n_spike_regs_sponpain, y = betweenness, color = is_patient)) +
+        geom_point() +
+        geom_smooth(method = "lm", se = FALSE) +
+        labs(title = "Betweenness HDI vs head motion",
+             x = "Head motion",
+             y = "Betweenness HDI") + 
+  scale_color_manual(values = c(HC = "red", CBP = "blue")) + 
+  theme_minimal()+
+  ylim(-0.3, 0.3)
+print(correlation)
+
+
+ggplot(data = df[df$n_spike_regs_sponpain < 210, ], aes(x = n_spike_regs_sponpain, y = betweenness, color = is_patient)) +
+        geom_point() +
+        geom_smooth(method = "lm", se = FALSE) +
+        labs(title = "Betweenness HDI vs head motion",
+             x = "Head motion",
+             y = "Betweenness HDI") + 
+  scale_color_manual(values = c(HC = "red", CBP = "blue")) + 
+  theme_minimal() +
+  ylim(-0.3, 0.3)
+print(correlation_no_out)
 
 ```
 
