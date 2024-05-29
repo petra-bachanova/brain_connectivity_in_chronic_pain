@@ -1,3 +1,7 @@
 Data/
 presentations/
 MANUSCRIPT/
+Graphs/
+resources/
+*.prism
+.DS_Store
