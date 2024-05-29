@@ -4,4 +4,5 @@ MANUSCRIPT/
 Graphs/
 resources/
 *.prism
-.DS_Store
+Code/.DS_Store
+Code/.Rhistory
