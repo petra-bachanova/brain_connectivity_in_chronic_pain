@@ -5,3 +5,5 @@ resources/
 *.prism
 Code/.DS_Store
 Code/.Rhistory
+.DS_Store
+.Rhistory
