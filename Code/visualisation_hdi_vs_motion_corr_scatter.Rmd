@@ -11,50 +11,53 @@ library(scales)
 ```
 
 ```{r}
-df = read.csv("../Data/HDIat03_w_meta_240619.csv")
+df = read.csv("../Data/HDIs with metadata/HDIat01_w_meta_240910.csv")
 df %>%
   summarise(correlation = round(cor(local_efficiency_bin, clustercoef_bin), 3))
-
 
 df <- df %>%
   mutate(is_patient = recode(is_patient, '0' = 'HC', '1' = 'CBP')) %>%
   filter(time==1 & !is.na(n_spike_regs_sponpain)) %>%
-  select(is_patient, n_spike_regs_sponpain, betweenness_bin, degree, clustercoef_bin, local_efficiency_bin, eigenvector_centrality_bin)
+  select(is_patient, n_spike_regs_sponpain, betweenness_bin, degree, clustercoef_bin, eigenvector_centrality_bin)
 
-hc_3sd = sd(df[df$is_patient == "HC", ]$n_spike_regs_sponpain) *3
+thresh = sd(df[df$is_patient == "HC", ]$n_spike_regs_sponpain) *3
+LoMo <- df[(df$is_patient == "CBP") & (df$n_spike_regs_sponpain < thresh),]
+HiMo <- df[(df$is_patient == "CBP") & (df$n_spike_regs_sponpain > thresh),]
+LoMo$is_patient = "LoMo CBP"
+HiMo$is_patient = "HiMo CBP"
 
-LM_CBP <- df[(df$is_patient == "CBP") & (df$n_spike_regs_sponpain < hc_3sd),]
-LM_CBP$is_patient = "LM CBP"
-
-merged <- rbind(df, LM_CBP)
-merged$is_patient <- factor(merged$is_patient, levels=c("HC", "CBP", "LM CBP"))
+merged <- rbind(df[df$is_patient == 'HC',], LoMo, HiMo)
+merged$is_patient <- factor(merged$is_patient, levels=c("HC", "LoMo CBP", "HiMo CBP"))
 ```
 
 ```{r}
 corr_tbl_be <- merged %>%
   group_by(is_patient) %>%
-  summarise(correlation = round(cor(n_spike_regs_sponpain, betweenness_bin), 3))
+  summarise(
+    correlation = round(cor(n_spike_regs_sponpain, betweenness_bin), 3),
+    p_value = cor.test(n_spike_regs_sponpain, betweenness_bin)$p.value)
 
 corr_tbl_de <- merged %>%
   group_by(is_patient) %>%
-  summarise(correlation = round(cor(n_spike_regs_sponpain, degree), 3))
+  summarise(
+    correlation = round(cor(n_spike_regs_sponpain, degree), 3),
+    p_value = cor.test(n_spike_regs_sponpain, degree)$p.value)
 
 corr_tbl_cc <- merged %>%
   group_by(is_patient) %>%
-  summarise(correlation = round(cor(n_spike_regs_sponpain, clustercoef_bin), 3))
-
-corr_tbl_le <- merged %>%
-  group_by(is_patient) %>%
-  summarise(correlation = round(cor(n_spike_regs_sponpain, local_efficiency_bin), 3))
+  summarise(
+    correlation = round(cor(n_spike_regs_sponpain, clustercoef_bin), 3),
+    p_value = cor.test(n_spike_regs_sponpain, clustercoef_bin)$p.value)
 
 corr_tbl_ec <- merged %>%
   group_by(is_patient) %>%
-  summarise(correlation = round(cor(n_spike_regs_sponpain, eigenvector_centrality_bin), 3))
+  summarise(
+    correlation = round(cor(n_spike_regs_sponpain, eigenvector_centrality_bin), 3),
+    p_value = cor.test(n_spike_regs_sponpain, eigenvector_centrality_bin)$p.value)
 
 corr_tbl_be
 corr_tbl_de
 corr_tbl_cc
-corr_tbl_le
 corr_tbl_ec
 ```
 
@@ -66,7 +69,7 @@ plot_correlation <- function(which_hdi, hdi_name){
         labs(title = paste0(hdi_name, " HDI vs head motion"),
              x = "Head motion (sqrt scale)",
              y = "HDI") + 
-  scale_color_manual(values = c(HC = "#E06B58", CBP = "#596DF4", `LM CBP` = "#44E7E0")) + 
+  scale_color_manual(values = c(HC = "#E06B58", `LoMo CBP` = "#44E7E0", `HiMo CBP` = "#596DF4")) + 
   scale_x_continuous(
     trans = sqrt_trans(), 
     breaks = c(0, 10, 50, 100, 250, 500, 1000), 
@@ -88,14 +91,12 @@ plot_correlation <- function(which_hdi, hdi_name){
 
 be <- plot_correlation(which_hdi = "betweenness_bin", hdi_name = "Betweenness")
 de <- plot_correlation(which_hdi = "degree", hdi_name = "Degree")
-le <- plot_correlation(which_hdi = "local_efficiency_bin", hdi_name = "Local Efficiency")
 cc <- plot_correlation(which_hdi = "clustercoef_bin", hdi_name = "Cluster Coefficient")
 ec <- plot_correlation(which_hdi = "eigenvector_centrality_bin", hdi_name = "Eigenvector Centrality")
 
 
 ggsave("../Graphs/correlation HDIs vs head motion/betweenness.png", be, width = 5, height = 2, dpi = 300)
 ggsave("../Graphs/correlation HDIs vs head motion/degree.png", de, width = 5, height = 2, dpi = 300)
-ggsave("../Graphs/correlation HDIs vs head motion/local_efficiency.png", le, width = 5, height = 2, dpi = 300)
 ggsave("../Graphs/correlation HDIs vs head motion/cluster_coef.png", cc, width = 5, height = 2, dpi = 300)
 ggsave("../Graphs/correlation HDIs vs head motion/eigenvector_efficiency.png", ec, width = 5, height = 2, dpi = 300)
 ```

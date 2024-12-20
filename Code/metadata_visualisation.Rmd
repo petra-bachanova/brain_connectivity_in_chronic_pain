@@ -12,28 +12,34 @@ library(reshape2)
 ```
 
 ```{r}
-df = read.csv("../Data/240508_metadata_prepped.csv")
+df = read.csv("../Data/metadata_prepped240909.csv")
 df = df[df$time==1, ]
-df$is_patient = as.factor(df$is_patient)
-df = df[df$time == 1, ] #& !is.na(df$pain_avg)
+
+df$gender = plyr::mapvalues(df$gender, 
+          from=c(1, 2, NaN, 3), 
+          to=c("Male","Female", "Other", "Other"))
+
+df$is_patient = plyr::mapvalues(df$is_patient, 
+          from=c(0, 1), to=c("HC","CBP"))
+
+df$HiMo_subject2 = plyr::mapvalues(df$HiMo_subject, 
+          from=c(0, 1), to=c("LoMo", "HiMo"))
+
+df$HiMo_subject2[(df$HiMo_subject2 == "HiMo") & (df$is_patient == "HC")] <- 'LoMo'
+df$final_group = paste(df$HiMo_subject2, df$is_patient, sep='_')
+
 
 T1 = table1(
   ~ gender + 
     age + 
-    weight + 
-    ethnicity + 
     backpain_length +
-    pain_avg_t1 + 
-    n_spike_regs_sponpain +
-    promis_dep_t1 + 
-    promis_anger_t1 + 
-    promis_anxiety_t1 + 
+    bpi_intensity_t1 +
+    odi_t1 +
     negative_affect_t1 +
     promis_sleep_t1 +
-    bpi_intensity_t1 +
-    bpi_interference_t1 + 
-    odi_t1| is_patient, data=df,
+    n_spike_regs_sponpain | final_group, data=df,
        render.continuous=c( .="Median [Min, Max]"))
+write.csv(T1, "../Data/Table1.csv")
 ```
 
 
