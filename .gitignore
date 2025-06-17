@@ -3,12 +3,9 @@ presentations/
 MANUSCRIPT/
 resources/
 *.prism
-Code/.DS_Store
-Code/.Rhistory
 .DS_Store
-.Rhistory
 Graphs/.DS_Store
-.DS_Store
+Code/.DS_Store
+.Rhistory
 Code/.RData
-.DS_Store
-.DS_Store
+Code/.Rhistory
