@@ -1,0 +1,151 @@
+---
+title: "LMM_heatmaps"
+output: html_document
+date: "2025-11-19"
+---
+
+```{r}
+# Libraries
+library(readr)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(gplots)
+library(viridis)
+library(scico)
+library(RColorBrewer)
+
+# read and prep a model dataset
+prep_model_data <- function(file, model_name, drop_cols = NULL) {
+  df <- read_csv(file)
+  if (!is.null(drop_cols)) df <- df %>% select(-all_of(drop_cols))
+  df <- df %>% mutate(model = model_name)
+  return(df)
+}
+```
+
+```{r}
+today <- format(Sys.Date(), "%y%m%d")
+
+hc   <- prep_model_data(
+  file="../Data/LMM HDI results/LMM_HDI_results_HC_separately_240910.csv", 
+  model="HC")
+LoMo <- prep_model_data(
+  file="../Data/LMM HDI results/LMM_HDI_results_LoMo_separately_240910.csv", 
+  model="LoMo", 
+  drop_cols = "backpain_length")
+
+HiMo <- prep_model_data(
+  file="../Data/LMM HDI results/LMM_HDI_results_HiMo_separately_251119.csv", 
+  model="HiMo", 
+  drop_cols = "backpain_length")
+
+# Combine all
+merged <- bind_rows(hc, LoMo, HiMo)
+```
+
+
+```{r}
+# helper function to extract a wide matrix (rows = covariates, columns = model_LD_ID)
+extract_matrix <- function(df, metric, type) {
+  out <- df %>%
+    filter(GraphMetric == metric, Type == type) %>%
+    mutate(model_LD_ID = paste(model, LinkDensity, sep = "_")) %>%
+    select(model_LD_ID, age, n_spike_regs_sponpain, odi_t1, promis_sleep_t1)
+  
+  out_t <- as.data.frame(t(out), stringsAsFactors = FALSE)
+  colnames(out_t) <- out_t[1, ]
+  out_t <- out_t[-1, , drop = FALSE]
+  
+  out_t <- out_t %>%
+    mutate(across(everything(), ~as.numeric(.))) %>% as.matrix()
+  
+  return(out_t)
+}
+
+
+p_to_stars <- function(p) {
+  if (is.na(p)) {
+    return("")           # keep NA values as empty string
+  } else if (p < 0.0001) {
+    return("****")
+  } else if (p < 0.001) {
+    return("***")
+  } else if (p < 0.01) {
+    return("**")
+  } else if (p < 0.05) {
+    return("*")
+  } else {
+    return("")           # anything >= 0.05 becomes empty
+  }
+}
+```
+
+
+```{r}
+# heatmap function
+plot_t_p_heatmap <- function(t_mat, p_mat, title) {
+  
+  annot <- ifelse(is.na(p_mat), "", format(p_mat, digits = 2))
+  
+  heatmap.2(
+    t_mat,
+    main=title,
+    Rowv = FALSE,
+    Colv = FALSE,
+    dendrogram = "none",
+    trace = "none",
+    col = scico(100, palette = "vik"),
+    key = TRUE,
+    key.title = "",
+    key.xlab = "",
+    key.ylab = "",
+    keysize = 1.0,
+    density.info = "none",
+    margins = c(8, 8),
+    lhei = c(1, 4),
+    lwid = c(1, 4),
+    srtCol = 45,
+    cexCol = 0.8,
+    cexRow = 0.7,
+    labRow = rownames(t_mat),
+    labCol = colnames(t_mat),
+    key.par = list(
+      mar = c(2, 1, 2, 1),   # shrink key margins
+      yaxt = "n" # no axes on key
+    ),
+    cellnote = annot,
+    notecol = "white",
+    notecex = 1.2
+  )
+}
+```
+
+
+```{r}
+metrics <- c("degree", "betweenness_bin", "clustercoef_bin", "local_efficiency_bin", "eigenvector_centrality_bin")
+
+LD_ID_order <- c(paste0("HC_", c(10,20,30,40,50)),
+                 paste0("LoMo_", c(10,20,30,40,50)),
+                 paste0("HiMo_", c(10,20,30,40,50)))
+
+savedir = "../Graphs/LMM_pretty_heatmaps"
+for(metric in metrics) {
+  print(metric)
+  t_vals <- extract_matrix(merged, metric, "tStat")
+  p_vals <- extract_matrix(merged, metric, "p")
+  stars_mat <- apply(p_vals, c(1, 2), p_to_stars)
+  
+  png(paste0(savedir, "/", metric, ".png"), width = 8, height = 4.5, res=1200, units = "in")
+  plot_t_p_heatmap(t_vals, stars_mat, title=metric)
+  dev.off()
+}
+```
+
+```{r}
+
+
+
+```
+
+

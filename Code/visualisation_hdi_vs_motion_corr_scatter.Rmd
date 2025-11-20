@@ -6,99 +6,265 @@ date: "2024-06-16"
 
 ```{r}
 library(ggplot2)
-library(dplyr)
+library(ggExtra)
+library(cowplot)
 library(scales)
+library(dplyr)
+library(purrr)
+library(readr)
 ```
 
 ```{r}
-df = read.csv("../Data/HDIs with metadata/HDIat01_w_meta_240910.csv")
-df %>%
-  summarise(correlation = round(cor(local_efficiency_bin, clustercoef_bin), 3))
+link_densities <- c("01", "02", "03", "04", "05")
+data_dir <- "../Data/HDIs with metadata"
 
-df <- df %>%
-  mutate(is_patient = recode(is_patient, '0' = 'HC', '1' = 'CBP')) %>%
-  filter(time==1 & !is.na(n_spike_regs_sponpain)) %>%
-  select(is_patient, n_spike_regs_sponpain, betweenness_bin, degree, clustercoef_bin, eigenvector_centrality_bin)
 
-thresh = sd(df[df$is_patient == "HC", ]$n_spike_regs_sponpain) *3
-LoMo <- df[(df$is_patient == "CBP") & (df$n_spike_regs_sponpain < thresh),]
-HiMo <- df[(df$is_patient == "CBP") & (df$n_spike_regs_sponpain > thresh),]
-LoMo$is_patient = "LoMo CBP"
-HiMo$is_patient = "HiMo CBP"
-
-merged <- rbind(df[df$is_patient == 'HC',], LoMo, HiMo)
-merged$is_patient <- factor(merged$is_patient, levels=c("HC", "LoMo CBP", "HiMo CBP"))
-```
-
-```{r}
-corr_tbl_be <- merged %>%
-  group_by(is_patient) %>%
-  summarise(
-    correlation = round(cor(n_spike_regs_sponpain, betweenness_bin), 3),
-    p_value = cor.test(n_spike_regs_sponpain, betweenness_bin)$p.value)
-
-corr_tbl_de <- merged %>%
-  group_by(is_patient) %>%
-  summarise(
-    correlation = round(cor(n_spike_regs_sponpain, degree), 3),
-    p_value = cor.test(n_spike_regs_sponpain, degree)$p.value)
-
-corr_tbl_cc <- merged %>%
-  group_by(is_patient) %>%
-  summarise(
-    correlation = round(cor(n_spike_regs_sponpain, clustercoef_bin), 3),
-    p_value = cor.test(n_spike_regs_sponpain, clustercoef_bin)$p.value)
-
-corr_tbl_ec <- merged %>%
-  group_by(is_patient) %>%
-  summarise(
-    correlation = round(cor(n_spike_regs_sponpain, eigenvector_centrality_bin), 3),
-    p_value = cor.test(n_spike_regs_sponpain, eigenvector_centrality_bin)$p.value)
-
-corr_tbl_be
-corr_tbl_de
-corr_tbl_cc
-corr_tbl_ec
-```
-
-```{r}
-plot_correlation <- function(which_hdi, hdi_name){
-  ggplot(data = merged, aes_string(x = "n_spike_regs_sponpain", y = which_hdi, color = "is_patient")) +
-        geom_point(position = position_jitter(width = 0.1, height = 0.01), size = 1.2) +
-        geom_smooth(method = "lm", se = FALSE) +
-        labs(title = paste0(hdi_name, " HDI vs head motion"),
-             x = "Head motion (sqrt scale)",
-             y = "HDI") + 
-  scale_color_manual(values = c(HC = "#E06B58", `LoMo CBP` = "#44E7E0", `HiMo CBP` = "#596DF4")) + 
-  scale_x_continuous(
-    trans = sqrt_trans(), 
-    breaks = c(0, 10, 50, 100, 250, 500, 1000), 
-    labels = c("0", "10", "50", "100", "250", "500", "1000")) +
-  # ylim(-0.2, 0.2) +
-  theme_minimal() +
-  theme(
-    panel.grid = element_blank(),  # Remove grid lines
-    panel.border = element_blank(),  # Remove border around plot
-    axis.line = element_line(color = "black", size=1),  # Add black axis lines
-    axis.ticks = element_line(size = 1),
-    axis.text = element_text(size = 10, face="bold"),  # Increase text size
-    axis.title = element_text(size = 10, face = "bold"),  # Bold axis titles
-    plot.title = element_text(size = 12, face = "bold"),  # Larger and bold plot title
-    legend.title = element_blank(),  # Bold legend title
-    legend.text = element_text(size = 10, face = "bold")  # Decrease legend text size
-  )
+process_ld <- function(ld) {
+  file_path <- file.path(data_dir, paste0("HDIat", ld, "_w_meta_240910.csv"))
+  
+  df <- read_csv(file_path, show_col_types = FALSE) %>%
+    filter(time == 1, !is.na(n_spike_regs_sponpain)) %>%
+    mutate(
+      is_patient = recode(is_patient, '0' = 'HC', '1' = 'CBP'),
+      thresh = sd(n_spike_regs_sponpain[is_patient == "HC"]) * 3,
+      is_patient = case_when(
+        is_patient == "CBP" & n_spike_regs_sponpain < thresh ~ "LoMo CBP",
+        is_patient == "CBP" & n_spike_regs_sponpain >= thresh ~ "HiMo CBP",
+        TRUE ~ is_patient
+      ),
+      is_patient = factor(is_patient, levels = c("HC", "LoMo CBP", "HiMo CBP")),
+      link_density = paste0(as.integer(ld)*10, "%")
+    ) %>%
+    select(is_patient, n_spike_regs_sponpain, betweenness_bin, degree, clustercoef_bin,
+           eigenvector_centrality_bin, age, promis_sleep_t1, link_density)
+  
+  return(df)
 }
 
-be <- plot_correlation(which_hdi = "betweenness_bin", hdi_name = "Betweenness")
-de <- plot_correlation(which_hdi = "degree", hdi_name = "Degree")
-cc <- plot_correlation(which_hdi = "clustercoef_bin", hdi_name = "Cluster Coefficient")
-ec <- plot_correlation(which_hdi = "eigenvector_centrality_bin", hdi_name = "Eigenvector Centrality")
+merged <- map_dfr(link_densities, process_ld)
+df_ld01 <- merged[merged$link_density == "10%", ]
+```
+
+```{r}
+# Original correlation plot from Figure 2b
+plot_simple_scatter <- function(y_var, y_var_name, x_var, x_var_name, save = FALSE, 
+                             save_dir = "../Graphs/correlation HDIs vs head motion",
+                             width = 5, height = 2, dpi = 300) {
+  
+  p <- ggplot(data = df_ld01, aes_string(x = x_var, y = y_var, color = "is_patient")) +
+    geom_point(position = position_jitter(width = 0.1, height = 0.01), size = 1.2) +
+    geom_smooth(method = "lm", se = FALSE) +
+    labs(title = paste0(y_var_name, " vs ", x_var_name),
+         x = x_var_name,
+         y = "HDI") + 
+    scale_color_manual(values = c(HC = "#E06B58", `LoMo CBP` = "#44E7E0", `HiMo CBP` = "#596DF4")) + 
+    scale_x_continuous(
+      trans = sqrt_trans(), 
+      breaks = c(0, 10, 50, 100, 250, 500, 1000), 
+      labels = c("0", "10", "50", "100", "250", "500", "1000")) +
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(color = "black", size = 1),
+      axis.ticks = element_line(size = 1),
+      axis.text = element_text(size = 10, face = "bold"),
+      axis.title = element_text(size = 10, face = "bold"),
+      plot.title = element_text(size = 12, face = "bold"),
+      legend.title = element_blank(),
+      legend.text = element_text(size = 10, face = "bold")
+    )
+  
+  if (save) {
+    if (!dir.exists(save_dir)) dir.create(save_dir, recursive = TRUE)
+    filename <- file.path(save_dir, paste0("scatter_", tolower(gsub(" ", "_", y_var_name)), "_vs_", x_var_name, ".png"))
+    ggsave(filename, p, width = width, height = height, dpi = dpi)
+  }
+  return(p)
+}
+```
+
+```{r}
+plot_simple_scatter(y_var = "degree", y_var_name = "Degree", x_var = "n_spike_regs_sponpain", x_var_name = "High motion volumes", save = TRUE)
+plot_simple_scatter("betweenness_bin", "Betweenness", x_var = "n_spike_regs_sponpain", x_var_name = "High motion volumes", save = TRUE)
+plot_simple_scatter("clustercoef_bin", "Clustering coef", x_var = "n_spike_regs_sponpain", x_var_name = "High motion volumes", save = TRUE)
+plot_simple_scatter("eigenvector_centrality_bin", "Eigenvector centr", x_var = "n_spike_regs_sponpain", x_var_name = "High motion volumes", save = TRUE)
+```
 
 
-ggsave("../Graphs/correlation HDIs vs head motion/betweenness.png", be, width = 5, height = 2, dpi = 300)
-ggsave("../Graphs/correlation HDIs vs head motion/degree.png", de, width = 5, height = 2, dpi = 300)
-ggsave("../Graphs/correlation HDIs vs head motion/cluster_coef.png", cc, width = 5, height = 2, dpi = 300)
-ggsave("../Graphs/correlation HDIs vs head motion/eigenvector_efficiency.png", ec, width = 5, height = 2, dpi = 300)
+```{r}
+# New density/scatter plot
+# y_var = HDI
+# x_var = head motion ("n_spike_regs_sponpain"), age, sleep
+plot_jointplot <- function(y_var, y_var_name, x_var, x_var_name, save=FALSE, 
+                             save_dir = "../Graphs/correlation HDIs vs head motion",
+                             width = 5, height = 3, dpi = 600){
+  p <- ggplot(df_ld01, aes_string(x = x_var, 
+                          y = y_var,
+                          color = "is_patient")) +
+    geom_point(alpha = 0.6) +
+    geom_smooth(method = "lm", se = FALSE) +
+    theme_classic() +
+    labs(x = x_var_name, y = "HDI") +
+    scale_color_manual(values = c(HC = "#E06B58", 
+                                  `LoMo CBP` = "#44E7E0", 
+                                  `HiMo CBP` = "#596DF4")) +
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      panel.border = element_blank(),
+      panel.background = element_rect(fill = "transparent", color = NA),  # main panel
+      plot.background = element_rect(fill = "transparent", color = NA),   # entire plot
+      axis.line = element_line(color = "black", size=1),
+      axis.ticks = element_line(size = 1),
+      axis.text = element_text(size = 10, face="bold"),
+      axis.title = element_text(size = 10, face = "bold"),
+      plot.title = element_text(size = 12, face = "bold"),
+      legend.position = "top",
+      legend.title = element_blank(),
+      legend.text = element_text(size = 10, face = "bold")
+    )
+  
+  if (x_var == "n_spike_regs_sponpain"){
+     p <- p +
+    scale_x_continuous(
+      trans = sqrt_trans(), 
+      breaks = c(0, 10, 50, 100, 250, 500, 1000), 
+      labels = c("0", "10", "50", "100", "250", "500", "1000"))
+  }
+  
+  legend <- cowplot::get_legend(p)
+  p_no_legend <- p + theme(legend.position = "none")
+  p_with_marginals <- ggMarginal(p_no_legend, type = "density", groupColour = TRUE, groupFill = TRUE)
+  p_final <- cowplot::plot_grid(legend, p_with_marginals, ncol = 1, rel_heights = c(0.1, 1))
+
+  if (save) {
+    if (!dir.exists(save_dir)) dir.create(save_dir, recursive = TRUE)
+    filename <- file.path(save_dir, paste0("jointplot_", tolower(gsub(" ", "_", y_var_name)), "_vs_", x_var_name, ".png"))
+    ggsave(filename, p_final, width = width, height = height, dpi = dpi)
+  }
+  
+  print(p_final)
+  
+}
+```
+
+```{r}
+# HEAD MOTION JOINT PLOTS
+plot_jointplot("degree", "Degree", x_var = "n_spike_regs_sponpain", x_var_name = "High motion volumes", save = TRUE)
+plot_jointplot("betweenness_bin", "Betweenness", x_var = "n_spike_regs_sponpain", x_var_name = "High motion volumes", save = TRUE)
+plot_jointplot("clustercoef_bin", "Clustering coef", x_var = "n_spike_regs_sponpain", x_var_name = "High motion volumes", save = TRUE)
+plot_jointplot("eigenvector_centrality_bin", "Eigenvector centr", x_var = "n_spike_regs_sponpain", x_var_name = "High motion volumes", save = TRUE)
+```
+
+```{r}
+metrics <- c("betweenness_bin", "degree", "clustercoef_bin", "eigenvector_centrality_bin")
+
+corr_tbl <- map_dfr(metrics, function(var) {
+  
+  df_ld01 %>%
+    group_by(is_patient) %>%
+    summarise(
+      metric = var,
+      r = cor(n_spike_regs_sponpain, .data[[var]], use = "complete.obs", method = "pearson"),
+      p = cor.test(n_spike_regs_sponpain, .data[[var]])$p.value,
+      ANOVA_HM_in_groups = aov(n_spike_regs_sponpain ~ is_patient, data = dat)$`Pr(>F)`,
+      .groups = "drop"
+    )
+})
+
+anova_tbl <- map_dfr(metrics, ~{
+  f <- as.formula(paste0(.x, " ~ is_patient"))
+  p <- summary(aov(f, data = df_ld01))[[1]][["Pr(>F)"]][1]
+
+  tibble(metric = .x, anova_p = p)
+})
+
+anova_tbl
+
+```
+
+```{r}
+# AGE JOINT PLOTS
+plot_jointplot("degree", "Degree", x_var = "age", x_var_name = "Age", save = TRUE)
+plot_jointplot("betweenness_bin", "Betweenness", x_var = "age", x_var_name = "Age", save = TRUE)
+plot_jointplot("clustercoef_bin", "Clustering coef", x_var = "age", x_var_name = "Age", save = TRUE)
+plot_jointplot("eigenvector_centrality_bin", "Eigenvector centr", x_var = "age", x_var_name = "Age", save = TRUE)
+```
+
+
+```{r}
+# SUMMARY CORRELATION ACROSS LDs PLOTS
+plot_correlation_across_lds <- function(correlate_with, correlate_with_name, metrics){
+
+  corr_tbls <- map_dfr(metrics, function(var) {
+    merged %>%
+      group_by(link_density, is_patient) %>%
+      summarise(
+        correlation = round(cor(.data[[correlate_with]], .data[[var]], use = "complete.obs"), 3),
+        p_value = cor.test(.data[[correlate_with]], .data[[var]])$p.value,
+        .groups = "drop"
+      ) %>%
+      mutate(metric = var)
+  })
+  
+  corr_tbls <- corr_tbls %>% arrange(is_patient, link_density)
+  corr_tbls$metric <- factor(corr_tbls$metric, levels=metrics)
+  
+  
+  
+  p <- ggplot(corr_tbls, aes(x = link_density, y = correlation, color = is_patient, group = is_patient)) +
+    geom_point(size = 2.5) +
+    geom_line(linewidth = 1) +
+    geom_hline(yintercept = 0, linetype="dotted", linewidth=0.5) +
+    facet_wrap(~ metric, ncol = 2) +
+    scale_color_manual(values = c(HC = "#E06B58",
+                                  `LoMo CBP` = "#44E7E0",
+                                  `HiMo CBP` = "#596DF4")) +
+    labs(x = "Link Density", y = paste0("Correlation: HDI vs ", correlate_with_name)) +
+    theme_minimal(base_size = 11) +
+    theme(
+      panel.grid = element_blank(),
+      panel.border = element_blank(),
+      panel.background = element_rect(fill = "transparent", color = NA),
+      plot.background = element_rect(fill = "transparent", color = NA),
+      axis.line = element_line(color = "black", linewidth = 0.8),
+      axis.ticks = element_line(linewidth = 0.8),
+      axis.text = element_text(size = 10, face = "bold"),
+      axis.title = element_text(size = 10, face = "bold"),
+      plot.title = element_text(size = 12, face = "bold"),
+      legend.position = "top",
+      legend.title = element_blank(),
+      legend.text = element_text(size = 10, face = "bold"),
+      strip.text = element_text(size = 11, face = "bold")
+    )
+  
+  return(p)
+}
+```
+
+
+```{r}
+metrics <- c("betweenness_bin", "degree", "clustercoef_bin", "eigenvector_centrality_bin")
+path = "~/Documents/repos/brain_connectivity_in_chronic_pain/Graphs/correlation HDIs vs covariates/"
+
+p <- plot_correlation_across_lds(
+  correlate_with = "n_spike_regs_sponpain", 
+  correlate_with_name = "head motion", 
+  metrics = metrics)
+ggsave(paste0(path, "/correlation_head_motion_across_lds.png"), p, width = 8, height = 5, dpi = 400)
+
+p <- plot_correlation_across_lds(
+  correlate_with = "promis_sleep_t1", 
+  correlate_with_name = "sleep disruption", 
+  metrics = metrics)
+ggsave(paste0(path, "/correlation_sleep_disruption_across_lds.png"), p, width = 6, height = 4, dpi = 400)
+
+p <- plot_correlation_across_lds(
+  correlate_with = "age", 
+  correlate_with_name = "age",
+  metrics = metrics)
+ggsave(paste0(path, "/correlation_age_across_lds.png"), p, width = 6, height = 4, dpi = 400)
 ```
 
 
