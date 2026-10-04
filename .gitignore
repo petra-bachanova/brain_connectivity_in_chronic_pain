@@ -10,3 +10,5 @@ Code/.DS_Store
 Code/.RData
 Code/.Rhistory
 .Rproj.user
+
+*.png
