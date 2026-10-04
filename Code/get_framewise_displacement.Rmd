@@ -1,0 +1,86 @@
+---
+title: "get_framewise_displacement"
+output: html_document
+date: "2026-10-01"
+---
+
+```{r}
+library(glue)
+
+project_dir <- "~/Documents/repos/brain_connectivity_in_chronic_pain"
+ursi <- read.csv(glue("{project_dir}/Data/raw/URSI_ids.csv"))
+
+path_to_fd_root <- "/Volumes/rc-1/lab/C/CANlab/labdata/data/OLP4CBP/Imaging/preprocessed/fmriprep"
+
+# Some tsv files have a comma or tab separator -> keep whichever gives more columns
+read_confounds <- function(filepath) {
+  df_comma <- tryCatch(
+    read.table(filepath, header = TRUE, sep = ",", na.strings = c("n/a", "NA")),
+    error = function(e) NULL
+  )
+  df_tab <- tryCatch(
+    read.table(filepath, header = TRUE, sep = "\t", na.strings = c("n/a", "NA")),
+    error = function(e) NULL
+  )
+  
+  n_comma <- if (!is.null(df_comma)) ncol(df_comma) else 0
+  n_tab   <- if (!is.null(df_tab))   ncol(df_tab)   else 0
+  
+  if (n_comma <= 1 && n_tab <= 1) {
+    stop(glue("Could not parse {filepath} with either comma or tab separator"))
+  }
+  
+  if (n_tab > n_comma) {
+    return(df_tab)
+  } else {
+    return(df_comma)
+  }
+}
+
+# pre-allocate columns to store results
+ursi$mean_fd      <- NA_real_
+ursi$max_fd       <- NA_real_
+ursi$mean_abs_disp <- NA_real_
+ursi$max_abs_disp  <- NA_real_
+
+for (i in seq_along(ursi$URSI)) {
+  id <- ursi$URSI[i]
+  
+  subject_file <- glue(
+    "{path_to_fd_root}/sub-{id}/ses-1/func/sub-{id}_ses-1_task-sponpain_desc-confounds_regressors.tsv")
+  
+  if (!file.exists(subject_file)) {
+    warning(glue("File not found for {id}, skipping"))
+    next
+  }
+  
+  subject_df <- read_confounds(subject_file)
+  
+  required_cols <- c("framewise_displacement", "trans_x", "trans_y", "trans_z")
+  if (!all(required_cols %in% names(subject_df))) {
+    warning(glue("Missing expected columns for {id}, skipping"))
+    next
+  }
+  
+  # Framewise displacement summaries
+  ursi$mean_fd[i] <- mean(subject_df$framewise_displacement, na.rm = TRUE)
+  ursi$max_fd[i]  <- max(subject_df$framewise_displacement, na.rm = TRUE)
+  
+  # Absolute (position) displacement from the reference volume, translation-only
+  abs_disp <- sqrt(subject_df$trans_x^2 + subject_df$trans_y^2 + subject_df$trans_z^2)
+  
+  ursi$mean_abs_disp[i] <- mean(abs_disp, na.rm = TRUE)
+  ursi$max_abs_disp[i]  <- max(abs_disp, na.rm = TRUE)
+}
+
+# Flag subjects that would pass a strict <2mm max absolute displacement criterion
+ursi$passes_2mm_criterion <- ursi$max_abs_disp < 2
+
+# save the combined file
+write.csv(ursi, glue("{project_dir}/Data/raw/URSI_motion_summary.csv"), row.names = FALSE)
+
+# Quick summary for your rebuttal
+table(ursi$passes_2mm_criterion, useNA = "ifany")
+```
+
+

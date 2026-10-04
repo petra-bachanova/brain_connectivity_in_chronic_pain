@@ -12,34 +12,152 @@ library(reshape2)
 ```
 
 ```{r}
-df = read.csv("../Data/metadata_prepped240909.csv")
+df = read.csv("../Data/metadata_prepped_261001.csv")
 df = df[df$time==1, ]
 
 df$gender = plyr::mapvalues(df$gender, 
           from=c(1, 2, NaN, 3), 
           to=c("Male","Female", "Other", "Other"))
 
-df$is_patient = plyr::mapvalues(df$is_patient, 
-          from=c(0, 1), to=c("HC","CBP"))
+df$final_group <- dplyr::case_when(
+  df$is_patient == 0 ~ "HC",
+  df$is_patient == 1 & df$HiMo_subject == 1 ~ "HiMo_CBP",
+  df$is_patient == 1 & df$HiMo_subject == 0 ~ "LoMo_CBP"
+)
 
-df$HiMo_subject2 = plyr::mapvalues(df$HiMo_subject, 
-          from=c(0, 1), to=c("LoMo", "HiMo"))
+df$passes_2mm_criterion = plyr::mapvalues(df$passes_2mm_criterion,
+          from = c(0, 1), to = c("No", "Yes"))
 
-df$HiMo_subject2[(df$HiMo_subject2 == "HiMo") & (df$is_patient == "HC")] <- 'LoMo'
-df$final_group = paste(df$HiMo_subject2, df$is_patient, sep='_')
-
-
-T1 = table1(
+T1 <- table1(
   ~ gender + 
     age + 
     backpain_length +
     bpi_intensity_t1 +
+    spon_pain_rating_mean +
     odi_t1 +
     negative_affect_t1 +
     promis_sleep_t1 +
-    n_spike_regs_sponpain | final_group, data=df,
-       render.continuous=c( .="Median [Min, Max]"))
-write.csv(T1, "../Data/Table1.csv")
+    n_spike_regs_sponpain +
+    mean_fd +
+    max_abs_disp +
+    passes_2mm_criterion | final_group, 
+  data = df,
+  render.continuous = c(.="Median [Min, Max]"),
+  overall = FALSE
+)
+
+T1
+```
+
+
+```{r}
+library(rvest)
+
+t1_df <- T1 %>% 
+  as.character() %>% 
+  read_html() %>% 
+  html_table(fill = TRUE) %>% 
+  .[[1]]
+
+colnames(t1_df)[1] <- "Variable"
+
+vars_continuous <- c("age", "backpain_length", "bpi_intensity_t1", "spon_pain_rating_mean",
+                      "odi_t1", "negative_affect_t1", "promis_sleep_t1",
+                      "n_spike_regs_sponpain", "mean_fd", "max_abs_disp")
+
+vars_categorical <- c("gender", "passes_2mm_criterion")
+
+p_continuous <- sapply(vars_continuous, function(v) {
+  kruskal.test(df[[v]] ~ df$final_group)$p.value
+})
+
+p_categorical <- sapply(vars_categorical, function(v) {
+  chisq.test(table(df[[v]], df$final_group))$p.value
+})
+
+p_all <- c(p_continuous, p_categorical)
+p_all_formatted <- ifelse(p_all < 0.001, "<0.001", formatC(p_all, format = "f", digits = 3))
+names(p_all_formatted) <- names(p_all)
+
+t1_df$`P-value` <- ""
+
+for (v in names(p_all_formatted)) {
+  row_idx <- which(t1_df[[1]] == v)
+  if (length(row_idx) == 1) {
+    t1_df$`P-value`[row_idx] <- p_all_formatted[v]
+  } else {
+    warning(glue::glue("Could not find a unique matching row for '{v}' — check t1_df manually"))
+  }
+}
+
+t1_df
+
+t1_df <- t1_df[, c("Variable", "HC(N=51)", "LoMo_CBP(N=120)", "HiMo_CBP(N=31)", "P-value")]
+write.csv(t1_df, "../Data/Table1_261001.csv")
+```
+
+```{r}
+sig_vars <- names(p_all[p_all < 0.05])
+sig_continuous  <- intersect(sig_vars, vars_continuous)
+sig_categorical <- intersect(sig_vars, vars_categorical)
+
+# --- One generic pairwise helper for both continuous (Wilcoxon) and categorical (Fisher) ---
+pairwise_generic <- function(var, df, test_type = c("wilcox", "fisher"), p.adjust.method = "bonferroni") {
+  test_type <- match.arg(test_type)
+  x <- df[[var]]
+  group <- df$final_group
+  
+  if (test_type == "wilcox") {
+    test <- pairwise.wilcox.test(x, group, p.adjust.method = p.adjust.method, exact = FALSE)
+    comparison <- as.vector(outer(rownames(test$p.value), colnames(test$p.value), paste, sep = " vs "))
+    p_value <- as.vector(test$p.value)
+  } else {
+    pairs <- combn(unique(group), 2, simplify = FALSE)
+    p_value <- sapply(pairs, function(pair) {
+      sub_idx <- group %in% pair
+      fisher.test(table(x[sub_idx], group[sub_idx]))$p.value
+    })
+    p_value <- p.adjust(p_value, method = p.adjust.method)
+    comparison <- sapply(pairs, paste, collapse = " vs ")
+  }
+  
+  data.frame(variable = var, comparison = comparison, p_value = p_value)
+}
+
+posthoc_table <- rbind(
+  do.call(rbind, lapply(sig_continuous, pairwise_generic, df = df, test_type = "wilcox")),
+  do.call(rbind, lapply(sig_categorical, pairwise_generic, df = df, test_type = "fisher"))
+)
+posthoc_table <- na.omit(posthoc_table)
+
+# --- Approximate p-value buckets ---
+format_p_approx <- function(p) {
+  dplyr::case_when(
+    p < 0.0001 ~ "<0.0001",
+    p < 0.001  ~ "<0.001",
+    p < 0.01   ~ "<0.01",
+    p < 0.05   ~ "<0.05",
+    TRUE       ~ formatC(p, format = "f", digits = 3)
+  )
+}
+posthoc_table$p_value_approx <- format_p_approx(posthoc_table$p_value)
+
+# --- Standardize comparison direction + reshape wide ---
+desired_order <- c("HC vs LoMo_CBP", "HC vs HiMo_CBP", "LoMo_CBP vs HiMo_CBP")
+
+posthoc_table$comparison <- sapply(strsplit(posthoc_table$comparison, " vs "), function(parts) {
+  matched <- intersect(c(paste(parts, collapse = " vs "), paste(rev(parts), collapse = " vs ")), desired_order)
+  if (length(matched)) matched[1] else paste(parts, collapse = " vs ")
+})
+
+library(tidyr); library(dplyr)
+
+posthoc_wide <- posthoc_table %>%
+  select(variable, comparison, p_value_approx) %>%
+  pivot_wider(names_from = comparison, values_from = p_value_approx) %>%
+  select(variable, all_of(desired_order))
+
+write.csv(posthoc_wide, "../Data/Table1_posthoc_comparisons_261001.csv", row.names = FALSE)
 ```
 
 

@@ -15,12 +15,14 @@ library(readr)
 ```
 
 ```{r}
+library(glue)
 link_densities <- c("01", "02", "03", "04", "05")
-data_dir <- "../Data/HDIs with metadata"
+project_dir <- "/Users/petra/Documents/repos/brain_connectivity_in_chronic_pain/"
+data_dir <- glue("{project_dir}/Data/HDIs with metadata")
 
 
 process_ld <- function(ld) {
-  file_path <- file.path(data_dir, paste0("HDIat", ld, "_w_meta_240910.csv"))
+  file_path <- file.path(data_dir, paste0("HDIat", ld, "_w_meta_261004.csv"))
   
   df <- read_csv(file_path, show_col_types = FALSE) %>%
     filter(time == 1, !is.na(n_spike_regs_sponpain)) %>%
@@ -35,67 +37,23 @@ process_ld <- function(ld) {
       is_patient = factor(is_patient, levels = c("HC", "LoMo CBP", "HiMo CBP")),
       link_density = paste0(as.integer(ld)*10, "%")
     ) %>%
-    select(is_patient, n_spike_regs_sponpain, betweenness_bin, degree, clustercoef_bin,
-           eigenvector_centrality_bin, age, promis_sleep_t1, link_density)
+    dplyr::select(is_patient, n_spike_regs_sponpain, passes_2mm_criterion, 
+                  age, promis_sleep_t1, bpi_intensity_t1, spon_pain_rating_mean, betweenness_bin, degree, clustercoef_bin, eigenvector_centrality_bin, link_density)
   
   return(df)
 }
 
 merged <- map_dfr(link_densities, process_ld)
+merged <- merged[merged$passes_2mm_criterion == 1, ]
 df_ld01 <- merged[merged$link_density == "10%", ]  # cols: is_patient, head motion, HDI metrics at 10% density
 ```
-
-```{r}
-# Original correlation plot from Figure 2b
-plot_simple_scatter <- function(y_var, y_var_name, x_var, x_var_name, save = FALSE, 
-                             save_dir = "../Graphs/correlation HDIs vs head motion",
-                             width = 5, height = 2, dpi = 300) {
-  
-  p <- ggplot(data = df_ld01, aes_string(x = x_var, y = y_var, color = "is_patient")) +
-    geom_point(position = position_jitter(width = 0.1, height = 0.01), size = 1.2) +
-    geom_smooth(method = "lm", se = FALSE) +
-    labs(title = paste0(y_var_name, " vs ", x_var_name),
-         x = x_var_name,
-         y = "HDI") + 
-    scale_color_manual(values = c(HC = "#E06B58", `LoMo CBP` = "#44E7E0", `HiMo CBP` = "#596DF4")) + 
-    scale_x_continuous(
-      trans = sqrt_trans(), 
-      breaks = c(0, 10, 50, 100, 250, 500, 1000), 
-      labels = c("0", "10", "50", "100", "250", "500", "1000")) +
-    theme_minimal() +
-    theme(
-      panel.grid = element_blank(),
-      panel.border = element_blank(),
-      axis.line = element_line(color = "black", size = 1),
-      axis.ticks = element_line(size = 1),
-      axis.text = element_text(size = 10, face = "bold"),
-      axis.title = element_text(size = 10, face = "bold"),
-      plot.title = element_text(size = 12, face = "bold"),
-      legend.title = element_blank(),
-      legend.text = element_text(size = 10, face = "bold")
-    )
-  
-  if (save) {
-    if (!dir.exists(save_dir)) dir.create(save_dir, recursive = TRUE)
-    filename <- file.path(save_dir, paste0("scatter_", tolower(gsub(" ", "_", y_var_name)), "_vs_", x_var_name, ".png"))
-    ggsave(filename, p, width = width, height = height, dpi = dpi)
-  }
-  return(p)
-}
-```
-
-```{r}
-plot_simple_scatter(y_var = "degree", y_var_name = "Degree", x_var = "n_spike_regs_sponpain", x_var_name = "High motion volumes", save = TRUE)
-plot_simple_scatter("betweenness_bin", "Betweenness", x_var = "n_spike_regs_sponpain", x_var_name = "High motion volumes", save = TRUE)
-plot_simple_scatter("clustercoef_bin", "Clustering coef", x_var = "n_spike_regs_sponpain", x_var_name = "High motion volumes", save = TRUE)
-plot_simple_scatter("eigenvector_centrality_bin", "Eigenvector centr", x_var = "n_spike_regs_sponpain", x_var_name = "High motion volumes", save = TRUE)
-```
-
 
 ```{r}
 # New density/scatter plot
 # y_var = HDI
 # x_var = head motion ("n_spike_regs_sponpain"), age, sleep
+library(MASS)
+
 plot_jointplot <- function(y_var, y_var_name, x_var, x_var_name, save=FALSE, 
                              save_dir = "../Graphs/correlation HDIs vs head motion",
                              width = 5, height = 3, dpi = 600){
@@ -103,9 +61,9 @@ plot_jointplot <- function(y_var, y_var_name, x_var, x_var_name, save=FALSE,
                           y = y_var,
                           color = "is_patient")) +
     geom_point(alpha = 0.6) +
-    geom_smooth(method = "lm", se = FALSE) +
+    geom_smooth(method = MASS::rlm, se = FALSE) +
     theme_classic() +
-    labs(x = x_var_name, y = "HDI") +
+    labs(x = x_var_name, y = y_var_name) +
     scale_color_manual(values = c(HC = "#E06B58", 
                                   `LoMo CBP` = "#44E7E0", 
                                   `HiMo CBP` = "#596DF4")) +
@@ -140,7 +98,9 @@ plot_jointplot <- function(y_var, y_var_name, x_var, x_var_name, save=FALSE,
 
   if (save) {
     if (!dir.exists(save_dir)) dir.create(save_dir, recursive = TRUE)
-    filename <- file.path(save_dir, paste0("jointplot_", tolower(gsub(" ", "_", y_var_name)), "_vs_", x_var_name, ".png"))
+    filename <- file.path(
+      save_dir, paste0("jointplot_robust_2mmFD_", 
+                       tolower(gsub(" ", "_", y_var_name)), "_vs_", x_var_name, ".png"))
     ggsave(filename, p_final, width = width, height = height, dpi = dpi)
   }
   
@@ -161,39 +121,31 @@ plot_jointplot("eigenvector_centrality_bin", "Eigenvector centr", x_var = "n_spi
 library(WGCNA)
 metrics <- c("betweenness_bin", "degree", "clustercoef_bin", "eigenvector_centrality_bin")
 
-corr_tbl <- map_dfr(metrics, function(var) {
-  
+get_robust_cor_in_one_ld <- function(var){
   df_ld01 %>%
     group_by(is_patient) %>%
     summarise(
       metric = var,
-      r = cor(n_spike_regs_sponpain, .data[[var]], use = "complete.obs", method = "pearson"),
-      p = cor.test(n_spike_regs_sponpain, .data[[var]])$p.value,
-      ANOVA_HM_in_groups = aov(n_spike_regs_sponpain ~ is_patient, data = df_ld01)$`Pr(>F)`,
-      .groups = "drop"
-    )
-})
+      r = round(cor(n_spike_regs_sponpain, .data[[var]], use = "complete.obs"), 2),
+      r_bicor = round(WGCNA::bicorAndPvalue(n_spike_regs_sponpain, .data[[var]], use = "pairwise.complete.obs")$bicor[1], 2),
+      p = round(WGCNA::bicorAndPvalue(n_spike_regs_sponpain, .data[[var]], use = "pairwise.complete.obs")$p[1], 2))
+}
 
-corr_tbl <- map_dfr(metrics, function(var) {
+corr_tbl <- map_dfr(metrics, get_robust_cor_in_one_ld)
 
-  df_ld01 %>%
-    group_by(is_patient) %>%
-    summarise(
-      metric = var,
-      r = cor(n_spike_regs_sponpain, .data[[var]], use = "complete.obs"),
-      r_bicor = WGCNA::bicor(n_spike_regs_sponpain, .data[[var]], use = "pairwise.complete.obs"),
-      p = cor.test(n_spike_regs_sponpain,.data[[var]])$p.value, .groups = "drop")
-})
-
-
-anova_tbl <- map_dfr(metrics, function(var) {
+# Kruskal-Wallis ANOVA
+kw_tbl <- map_dfr(metrics, function(var) {
   f <- as.formula(paste(var, "~ is_patient"))
-  p <- summary(aov(f, data = df_ld01))[[1]][["Pr(>F)"]][1]
-  tibble(metric = var, anova_p = p)
+  kw <- kruskal.test(f, data = df_ld01)
+  tibble(
+    metric = var,
+    kw_stat = unname(kw$statistic),
+    kw_p    = kw$p.value
+  )
 })
 
-anova_tbl
-
+kw_tbl
+corr_tbl
 ```
 
 ```{r}
@@ -207,25 +159,23 @@ plot_jointplot("eigenvector_centrality_bin", "Eigenvector centr", x_var = "age",
 
 ```{r}
 # SUMMARY CORRELATION ACROSS LDs PLOTS
+get_robust_cor_across_lds <- function(metric, correlate_with){
+  merged %>%
+    group_by(link_density, is_patient) %>%
+    summarise(
+      r = round(cor(.data[[correlate_with]], .data[[metric]], use = "complete.obs"), 2),
+      r_bicor = round(WGCNA::bicorAndPvalue(.data[[correlate_with]], .data[[metric]], use = "pairwise.complete.obs")$bicor[1], 2),
+      p = round(WGCNA::bicorAndPvalue(.data[[correlate_with]], .data[[metric]], use = "pairwise.complete.obs")$p[1], 2)) %>%
+    mutate(metric = metric)
+}
+
 plot_correlation_across_lds <- function(correlate_with, correlate_with_name, metrics){
 
-  corr_tbls <- map_dfr(metrics, function(var) {
-    merged %>%
-      group_by(link_density, is_patient) %>%
-      summarise(
-        correlation = round(cor(.data[[correlate_with]], .data[[var]], use = "complete.obs"), 3),
-        p_value = cor.test(.data[[correlate_with]], .data[[var]])$p.value,
-        .groups = "drop"
-      ) %>%
-      mutate(metric = var)
-  })
-  
+  corr_tbls <- map_dfr(metrics, get_robust_cor_across_lds, correlate_with = correlate_with)
   corr_tbls <- corr_tbls %>% arrange(is_patient, link_density)
   corr_tbls$metric <- factor(corr_tbls$metric, levels=metrics)
   
-  
-  
-  p <- ggplot(corr_tbls, aes(x = link_density, y = correlation, color = is_patient, group = is_patient)) +
+  p <- ggplot(corr_tbls, aes(x = link_density, y = r_bicor, color = is_patient, group = is_patient)) +
     geom_point(size = 2.5) +
     geom_line(linewidth = 1) +
     geom_hline(yintercept = 0, linetype="dotted", linewidth=0.5) +
@@ -256,6 +206,7 @@ plot_correlation_across_lds <- function(correlate_with, correlate_with_name, met
 ```
 
 
+# Robust correlations across link densities (Figure 3 and Supplementary for Figure 5?)
 ```{r}
 metrics <- c("betweenness_bin", "degree", "clustercoef_bin", "eigenvector_centrality_bin")
 path = "~/Documents/repos/brain_connectivity_in_chronic_pain/Graphs/correlation HDIs vs covariates/"
@@ -264,22 +215,77 @@ p <- plot_correlation_across_lds(
   correlate_with = "n_spike_regs_sponpain", 
   correlate_with_name = "head motion", 
   metrics = metrics)
-ggsave(paste0(path, "/correlation_head_motion_across_lds.png"), p, width = 8, height = 5, dpi = 400)
+ggsave(paste0(path, "/robust_cor_head_motion_across_lds_2mmFD.png"), p, width = 8, height = 5, dpi = 400)
 
 p <- plot_correlation_across_lds(
   correlate_with = "promis_sleep_t1", 
   correlate_with_name = "sleep disruption", 
   metrics = metrics)
-ggsave(paste0(path, "/correlation_sleep_disruption_across_lds.png"), p, width = 6, height = 4, dpi = 400)
+ggsave(paste0(path, "/robust_cor_sleep_disruption_across_lds.png"), p, width = 6, height = 4, dpi = 400)
 
 p <- plot_correlation_across_lds(
   correlate_with = "age", 
   correlate_with_name = "age",
   metrics = metrics)
-ggsave(paste0(path, "/correlation_age_across_lds.png"), p, width = 6, height = 4, dpi = 400)
+ggsave(paste0(path, "/robust_cor_age_across_lds.png"), p, width = 6, height = 4, dpi = 400)
 ```
 
 
+#TRAIT vs STATE PAIN
+```{r}
+df_pain_vis <- merged[merged$link_density=="10%", ]
+
+p <- ggplot(df_pain_vis, aes_string(x = "bpi_intensity_t1", 
+                          y = "spon_pain_rating_mean",
+                          color = "is_patient")) +
+    geom_point(alpha = 0.6) +
+    geom_smooth(method = MASS::rlm, se = FALSE) +
+    theme_classic() +
+    labs(x = "Last week average pain", y = "Current pain") +
+    scale_color_manual(values = c(HC = "#E06B58", 
+                                  `LoMo CBP` = "#44E7E0", 
+                                  `HiMo CBP` = "#596DF4")) +
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      panel.border = element_blank(),
+      panel.background = element_rect(fill = "transparent", color = NA),  # main panel
+      plot.background = element_rect(fill = "transparent", color = NA),   # entire plot
+      axis.line = element_line(color = "black", size=1),
+      axis.ticks = element_line(size = 1),
+      axis.text = element_text(size = 10, face="bold"),
+      axis.title = element_text(size = 10, face = "bold"),
+      plot.title = element_text(size = 12, face = "bold"),
+      legend.position = "top",
+      legend.title = element_blank(),
+      legend.text = element_text(size = 10, face = "bold")
+    )
+
+legend <- cowplot::get_legend(p)
+p_no_legend <- p + theme(legend.position = "none")
+p_with_marginals <- ggMarginal(p_no_legend, type = "density", groupColour = TRUE, groupFill = TRUE)
+p_final <- cowplot::plot_grid(legend, p_with_marginals, ncol = 1, rel_heights = c(0.1, 1))
+p_final
+
+hc <- df_pain_vis[df_pain_vis$is_patient=="HC",]
+lomo <- df_pain_vis[df_pain_vis$is_patient=="LoMo CBP",]
+himo <- df_pain_vis[df_pain_vis$is_patient=="HiMo CBP",]
+
+WGCNA::bicorAndPvalue(
+  hc$spon_pain_rating_mean, hc$bpi_intensity_t1, 
+  use = "pairwise.complete.obs")
+
+WGCNA::bicorAndPvalue(
+  lomo$spon_pain_rating_mean, lomo$bpi_intensity_t1, 
+  use = "pairwise.complete.obs")
+
+WGCNA::bicorAndPvalue(
+  himo$spon_pain_rating_mean, himo$bpi_intensity_t1, 
+  use = "pairwise.complete.obs")
+
+
+kruskal.test(spon_pain_rating_mean ~ bpi_intensity_t1, data = df_pain_vis)
+```
 
 
 

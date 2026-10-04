@@ -7,6 +7,7 @@ date: "2025-11-19"
 ```{r}
 # Libraries
 library(readr)
+library(glue)
 library(dplyr)
 library(tidyr)
 library(lubridate)
@@ -18,7 +19,7 @@ library(RColorBrewer)
 # read and prep a model dataset
 prep_model_data <- function(file, model_name, drop_cols = NULL) {
   df <- read_csv(file)
-  if (!is.null(drop_cols)) df <- df %>% select(-all_of(drop_cols))
+  if (!is.null(drop_cols)) df <- df %>% dplyr::select(-all_of(drop_cols))
   df <- df %>% mutate(model = model_name)
   return(df)
 }
@@ -26,18 +27,21 @@ prep_model_data <- function(file, model_name, drop_cols = NULL) {
 
 ```{r}
 today <- format(Sys.Date(), "%y%m%d")
+project_dir <- "~/Documents/repos/brain_connectivity_in_chronic_pain"
+date <- "261003"
 
-hc   <- prep_model_data(
-  file="../Data/LMM HDI results/LMM_HDI_results_HC_separately_240910.csv", 
+hc <- prep_model_data(
+  file=glue("{project_dir}/Data/LMM HDI results/LMM_HDI_results_HC_separately{date}.csv"), 
   model="HC")
+
 LoMo <- prep_model_data(
-  file="../Data/LMM HDI results/LMM_HDI_results_LoMo_separately_240910.csv", 
+  file=glue("{project_dir}/Data/LMM HDI results/LMM_HDI_results_LoMo_separately{date}.csv"), 
   model="LoMo", 
   drop_cols = "backpain_length")
 
 HiMo <- prep_model_data(
-  file="../Data/LMM HDI results/LMM_HDI_results_HiMo_separately_251119.csv", 
-  model="HiMo", 
+  file=glue("{project_dir}/Data/LMM HDI results/LMM_HDI_results_HiMo_separately{date}.csv"), 
+  model="HiMo",
   drop_cols = "backpain_length")
 
 # Combine all
@@ -51,7 +55,7 @@ extract_matrix <- function(df, metric, type) {
   out <- df %>%
     filter(GraphMetric == metric, Type == type) %>%
     mutate(model_LD_ID = paste(model, LinkDensity, sep = "_")) %>%
-    select(model_LD_ID, age, n_spike_regs_sponpain, odi_t1, promis_sleep_t1)
+    dplyr::select(model_LD_ID, n_spike_regs_sponpain, spon_pain_rating_mean, bpi_intensity_t1, age, promis_sleep_t1, gender, odi_t1, negative_affect_t1)
   
   out_t <- as.data.frame(t(out), stringsAsFactors = FALSE)
   colnames(out_t) <- out_t[1, ]
@@ -100,6 +104,8 @@ plot_t_p_heatmap <- function(t_mat, p_mat, title) {
     key.title = "",
     key.xlab = "",
     key.ylab = "",
+    symkey = TRUE,
+    breaks = seq(-4, 4, length.out = 101),
     keysize = 1.0,
     density.info = "none",
     margins = c(8, 8),
@@ -116,7 +122,7 @@ plot_t_p_heatmap <- function(t_mat, p_mat, title) {
     ),
     cellnote = annot,
     notecol = "white",
-    notecex = 1.2
+    notecex = 0.8
   )
 }
 ```
@@ -129,14 +135,14 @@ LD_ID_order <- c(paste0("HC_", c(10,20,30,40,50)),
                  paste0("LoMo_", c(10,20,30,40,50)),
                  paste0("HiMo_", c(10,20,30,40,50)))
 
-savedir = "../Graphs/LMM_pretty_heatmaps"
+savedir = glue("{project_dir}/Graphs/LMM_pretty_heatmaps")
 for(metric in metrics) {
   print(metric)
   t_vals <- extract_matrix(merged, metric, "tStat")
   p_vals <- extract_matrix(merged, metric, "p")
   stars_mat <- apply(p_vals, c(1, 2), p_to_stars)
   
-  png(paste0(savedir, "/", metric, ".png"), width = 8, height = 4.5, res=1200, units = "in")
+  png(paste0(savedir, "/", metric, "_", today, ".png"), width = 8, height = 4.5, res=1200, units = "in")
   plot_t_p_heatmap(t_vals, stars_mat, title=metric)
   dev.off()
 }

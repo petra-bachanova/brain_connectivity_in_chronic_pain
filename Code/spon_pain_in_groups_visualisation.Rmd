@@ -1,0 +1,106 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r}
+library(glue)
+library(dunn.test)  # install.packages("dunn.test") if needed
+library(ggplot2)
+library(tidyr)
+
+
+project_dir = "~/Documents/repos/archive/brain_connectivity_in_chronic_pain"
+df <- read.csv(glue("{project_dir}/Data/metadata_prepped_260313.csv"))
+df <- df[df$time == 1, ]
+ 
+# Create three-group variable: HC, LoMo CBP, HiMo CBP
+df$group <- ifelse(df$is_patient == 0, "HC",
+            ifelse(df$HiMo_subject == 1, "HiMo_CBP", "LoMo_CBP"))
+df$group <- factor(df$group, levels = c("HC", "LoMo_CBP", "HiMo_CBP"))
+
+# --- Current pain (spon_pain_rating_mean) ---
+kruskal.test(age ~ group, data = df)
+dunn.test(df$age, df$group, method = "bonferroni")
+```
+
+
+```{r}
+library(ggpattern)
+library(ggpubr)
+library(ggbeeswarm)
+
+# Significance brackets — update labels to match your Dunn's output
+comparisons <- list(c("HC", "LoMo_CBP"), c("HC", "HiMo_CBP"), c("LoMo_CBP", "HiMo_CBP"))
+p_labels <- c("ns", "****", "****")  # HC vs LoMo, HC vs HiMo, LoMo vs HiMo
+
+ggplot(df, aes(x = group, y = age, fill = group)) +
+  geom_violin_pattern(
+    aes(pattern_fill = group),
+    pattern = "circle",
+    pattern_density = 0.3,
+    pattern_spacing = 0.03,
+    pattern_size = 0.2,
+    color = "black",
+    linewidth = 0.5,
+    alpha = 0.85
+  ) +
+  # geom_boxplot(width = 0.08, outlier.shape = NA, fill = "white", color = "black", linewidth = 0.5) +
+  geom_beeswarm(color = "black", priority='density', size=0.8) +
+  scale_fill_manual(values = c("HC" = "#c8493a", "LoMo_CBP" = "#4dbfbf", "HiMo_CBP" = "#6a5acd")) +
+  scale_pattern_fill_manual(values = c("HC" = "#c8493a", "LoMo_CBP" = "#4dbfbf", "HiMo_CBP" = "#6a5acd")) +
+  scale_x_discrete(labels = c("HC" = "HC", "LoMo_CBP" = "LoMo CBP", "HiMo_CBP" = "HiMo CBP")) +
+  stat_compare_means(comparisons = comparisons, label = "p.signif",
+                     tip.length = 0.01,
+                     step.increase = 0.08) +
+  labs(x = NULL, y = "Current Pain Rating") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text = element_text(size = 11),
+        axis.title.y = element_text(size = 12))
+
+
+
+library(ggpubr)
+library(ggbeeswarm)
+ 
+# Get y max for bracket placement
+y_max <- max(df$spon_pain_rating_mean, na.rm = TRUE)
+ 
+# Significance brackets from Dunn's output
+comparisons <- list(c("HC", "LoMo_CBP"), c("HC", "HiMo_CBP"), c("LoMo_CBP", "HiMo_CBP"))
+ 
+ggplot(df, aes(x = group, y = spon_pain_rating_mean, fill = group)) +
+  geom_violin(
+    color = "black",
+    linewidth = 0.5,
+    alpha = 0.6,
+    width = 0.7,          # narrower violins like Prism
+    bw = 2                # tighter bandwidth = less smoothing, more tapered shape
+  ) +
+  geom_beeswarm(
+    color = "black",
+    size = 1.2,
+    alpha = 0.8,
+    cex = 0.9,            # tighter packing of points
+    priority = "density"
+  ) +
+  scale_fill_manual(values = c("HC" = "#c8493a", "LoMo_CBP" = "#4dbfbf", "HiMo_CBP" = "#6a5acd")) +
+  scale_x_discrete(labels = c("HC" = "HC", "LoMo_CBP" = "LoMo CBP", "HiMo_CBP" = "HiMo CBP")) +
+  scale_y_continuous(expand = expansion(mult = c(0.02, 0.15))) +  # reduce top whitespace
+  stat_compare_means(
+    comparisons = comparisons,
+    label = "p.signif",
+    tip.length = 0.01,
+    step.increase = 0.06,
+    size = 4
+  ) +
+  labs(x = NULL, y = "Current Pain Rating") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text = element_text(size = 11),
+        axis.title.y = element_text(size = 12))
+ 
+```
+
+

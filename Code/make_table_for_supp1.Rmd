@@ -1,0 +1,66 @@
+---
+title: "make_table_for_supp1"
+output: html_document
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(glue)
+library(readr)
+
+pad_to_length <- function(x, n) {
+  if (length(x) > n) stop("Vector longer than target length")
+  c(x, rep(NA, n - length(x)))
+}
+```
+
+```{r}
+metrics <- c("degree", "betweenness_bin", "clustercoef_bin",
+             "eigenvector_centrality_bin")
+project_dir <- "~/Documents/repos/brain_connectivity_in_chronic_pain"
+
+group_size <- 121  # max group length to pad each subgroup to
+
+for (metric in metrics) {
+
+  di <- list()
+
+  for (i in 1:5) {
+
+    file_path <- sprintf(glue("{project_dir}/Data/HDIs with metadata/HDIat0%d_w_meta_261004.csv"), i)
+    per <- read_csv(file_path, show_col_types = FALSE)
+
+    # Intended filter: both conditions must hold
+    per <- per %>%
+      filter(time == 1 & passes_2mm_criterion == 1)
+
+    hc <- per %>%
+      filter(is_patient == 0) %>%
+      pull(.data[[metric]])
+    hc <- pad_to_length(hc, group_size)
+
+    lomo <- per %>%
+      filter(is_patient == 1, HiMo_subject == 0) %>%
+      pull(.data[[metric]])
+    lomo <- pad_to_length(lomo, group_size)
+
+    himo <- per %>%
+      filter(is_patient == 1, HiMo_subject == 1) %>%
+      pull(.data[[metric]])
+    himo <- pad_to_length(himo, group_size)
+
+    full_line <- c(hc, lomo, himo)
+    di[[paste0(i * 10, "%")]] <- full_line
+
+    # Build the data frame from the list collected so far (rows = thresholds)
+    formatted <- as.data.frame(do.call(rbind, di))
+    rownames(formatted) <- names(di)
+
+    out_path <- sprintf(glue("{project_dir}/Data/supp1 tables for prism/%s_2mm_FD.csv"), metric)
+    dir.create(dirname(out_path), recursive = TRUE, showWarnings = FALSE)
+    write.csv(formatted, out_path, row.names = TRUE)
+  }
+}
+```
+
